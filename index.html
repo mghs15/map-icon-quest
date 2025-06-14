@@ -84,8 +84,8 @@ const getStartPoint = () => {
   const n = sps.length;
   const i = Math.floor(n * Math.random());
   const sp = sps[i];
-  const x = Math.random() * 2 - 1; // -1～1
-  const y = Math.random() * 2 - 1; // -1～1
+  const x = Math.random() - 0.5; // -1～1
+  const y = Math.random() - 0.5; // -1～1
   return [sp[0] + x, sp[1] + y];
 }
 
