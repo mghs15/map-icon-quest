@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset='utf-8' />
+<title>地図記号探しゲーム</title>
+<meta name='viewport' content='initial-scale=1,maximum-scale=1,user-scalable=no' />
+<script src='https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js'></script>
+<link href='https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css' rel='stylesheet' />
+<script src="https://unpkg.com/pmtiles@2.10.0/dist/index.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@7/turf.min.js"></script>
+<!--
+<script src="./getRasterTilePixel.js"></script>
+<script src="./measure.js"></script>
+-->
+<script src="./setting.js"></script>
+<style>
+body { 
+  margin:0;
+  padding:0;
+}
+
+
+#map {
+  position: absolute;
+  top: 0;
+  bottom: 0px;
+  width: 100%;
+}
+
+#menu{
+  position: absolute;
+  padding: 5px 20px ;
+  margin: 0 0;
+  background: #eeeeee;
+  box-shadow: 0px 0px 0px 0px #eeeeee;
+  font-family: 'Open Sans', sans-serif;
+  //min-height: 300px;
+  pointer-events: auto;
+  z-index: 99999;
+}
+
+</style>
+</head>
+<body>
+
+<div id='menu'>
+  <div id='menu-main'>
+  指定された地図記号を探そう！
+  <br>
+  <!--
+  記号数：<input id="qNum" type="number" value="0" /><br>
+  -->
+  難易度：<select name="mode" id="mode">
+    <option value="1">標準</option>
+    <option value="2">難しい</option>
+    <option value="3">かなり難しい</option>
+    <option value="0">おためし</option>
+  </select>
+  <button onclick="initializeGame()">リスタート</button>
+  <button onclick="giveUpGame()">あきらめる</button>
+  <hr>
+  ミッション：以下の地図記号を探してクリック！
+  <div id="questions"></div>
+  <hr>
+  </div>
+  <input type="checkbox" class="local" id="switchPanel" onchange="switchPanel();" checked>操作パネル
+</div>
+
+<div id='map'></div>
+
+<script>
+
+const switchPanel = () => {
+  const checked = document.getElementById("switchPanel").checked;
+  if(checked){
+    document.getElementById("menu-main").style.display = "";
+  }else{
+    document.getElementById("menu-main").style.display = "none";
+  }
+}
+
+const getStartPoint = () => {
+  const sps = GLOBAL.startPointList;
+  const n = sps.length;
+  const i = Math.floor(n * Math.random());
+  const sp = sps[i];
+  const x = Math.random() * 2 - 1; // -1～1
+  const y = Math.random() * 2 - 1; // -1～1
+  return [sp[0] + x, sp[1] + y];
+}
+
+/*************************************************/
+/*Maplibre 関係設定                              */
+/*************************************************/
+const map = new maplibregl.Map({
+  container: 'map', // container id
+  hash: false, //add #position on URL
+  style: 'https://mghs15.github.io/styling-tools-for-gsi-optbv/basic.json', // stylesheet location
+  center: [135,35], // starting position [lng, lat]
+  zoom: 4, // starting zoom
+  minZoom: 4,
+  maxZoom: 16,
+  attributionControl: false,
+  clickTolerance: 10,
+  localIdeographFontFamily: ['MS Gothic', 'Hiragino Kaku Gothic Pro', 'sans-serif']
+});
+
+
+map.addControl(new maplibregl.AttributionControl({compact: true}));
+map.addControl(new maplibregl.NavigationControl(), 'bottom-left');
+map.addControl(new maplibregl.ScaleControl() , 'bottom-right');
+
+map.showTileBoundaries = false;
+
+/*************************************************/
+/*PMTILES 関係設定                               */
+/*************************************************/
+let protocol = new pmtiles.Protocol();
+maplibregl.addProtocol("pmtiles",protocol.tile);
+
+/*************************************************/
+/*初期化時 関係設定                              */
+/*************************************************/
+
+map.on('load', function() {
+  
+  map.addSource('route-line', {
+    type: 'geojson',
+    data: {
+      type: 'FeatureCollection',
+      features: []
+    }
+  });
+  map.addLayer({
+    id: 'route-line',
+    type: 'line',
+    source: 'route-line',
+    paint: {
+      'line-width': 3,
+      'line-color': ["get", "color"]
+    }
+  });
+  
+  map.addSource('target-points', {
+    type: 'geojson',
+    data: {
+      type: 'FeatureCollection',
+      features: []
+    }
+  });
+  map.addLayer({
+    id: 'target-points',
+    type: 'circle',
+    source: 'target-points',
+    paint: {
+      'circle-radius': 16,
+      'circle-color': ['rgba',0,0,0,0],
+      'circle-stroke-width': 4,
+      'circle-stroke-color': ["get", "color"]
+    }
+  });
+  
+  initializeGame();
+  
+});
+
+const initializeGame = () => {
+  // mode : 難易度設定
+  const mode = +document.getElementById("mode").value;
+  
+  // 出題数
+  const numberOfQuestion = 1 + mode*2;
+  
+  // 出題範囲
+  const fSet = GLOBAL.featureSet.map( q => q.split(","));
+  console.log(fSet);
+  
+  let examSet;
+  if(mode == 1){ examSet = fSet.filter(x => x[0]=="Anno" && +x[1]>999); }
+  else if(mode == 2){ examSet = fSet.filter(x => +x[1]>1000); }
+  else if(mode == 3){ examSet = fSet; }
+  else if(mode == 0){ 
+    examSet = [
+      ["Anno",6322,"未耕地植生　針葉樹林"],
+      ["Anno",3218,"郵便局"],
+      ["Anno",7102,"三角点"],
+    ];
+  }
+  
+  // スタート地点
+  const start = getStartPoint();
+  
+  // 各種初期化
+  // GLOBAL.clearedGeoJSON, GLOBAL.routeLine の初期化も後で実施
+  GLOBAL.questionList = getRandomElements(examSet, numberOfQuestion);
+  GLOBAL.clearedList = [];
+  GLOBAL.giveUpStatus = false;
+  
+  // 見つけた地点の記録
+  GLOBAL.clearedGeoJSON = {type: "FeatureCollection", features: []};
+  map.getSource('target-points').setData(GLOBAL.clearedGeoJSON);
+  
+  // ルート記録
+  GLOBAL.routeLine = [];
+  GLOBAL.routeLine.push(start);
+  map.getSource('route-line').setData({type: "FeatureCollection", features: []});
+  
+  // ミッションの表示と移動
+  renderQuestions();
+  map.jumpTo({ center: start, zoom: 15 });
+  map.setMinZoom(14); 
+}
+
+const finishGame = () => {
+  console.log("ゲーム終了");
+  console.log(GLOBAL.clearedGeoJSON);
+  console.log(GLOBAL.routeLine);
+  
+  const routeGeoJSON = {
+    "type": "FeatureCollection",
+    "features": [{
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": GLOBAL.routeLine
+      },
+      "properties": {
+        "color": GLOBAL.giveUpStatus ? "rgb(0,128,255)" : "rgb(255,0,0)"
+      }
+    }]
+  };
+  
+  map.getSource('route-line').setData(routeGeoJSON);
+  
+  map.setMinZoom(4);
+  const bounds = turf.bbox(routeGeoJSON); // or GLOBAL.clearedGeoJSON
+  map.fitBounds([[bounds[0], bounds[1]], [bounds[2], bounds[3]]], { padding: 40 });
+  
+}
+
+const giveUpGame = () => {
+  GLOBAL.giveUpStatus = true;
+  alert("拡大・縮小の制約を解除しました。続けて遊ぶことができます。")
+  console.log("Give Up ----------");
+  finishGame();
+}
+
+const renderQuestions = () => {
+  const p = document.createElement("div");
+  
+  const qs = GLOBAL.questionList;
+  qs.forEach( q => {
+    const el = document.createElement("div");
+    el.innerText = `「${q[2]}」`;
+    p.appendChild(el);
+  });
+  
+  const cs = GLOBAL.clearedList;
+  cs.forEach( q => {
+    const el = document.createElement("div");
+    el.innerText = `クリア済：「${q[2]}」`;
+    p.appendChild(el);
+  });
+  
+  const div = document.getElementById("questions");
+  p.id= "questions";
+  div.replaceWith(p);
+}
+
+function getRandomElements(array, m) {
+  if (m > array.length) {
+    throw new Error("取り出す数 m が配列の長さを超えています");
+  }
+
+  // 元の配列をコピーしてシャッフル
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+
+  // 先頭から m 個を取得
+  return shuffled.slice(0, m);
+}
+
+/*************************************************/
+/*地図移動 関係設定                              */
+/*************************************************/
+
+map.on('moveend', () => {
+  if(!GLOBAL.routeLine) return;
+  const {lng, lat} = map.getCenter();
+  GLOBAL.routeLine.push([lng,lat]);
+});
+
+/*************************************************/
+/*クリック 関係設定                              */
+/*************************************************/
+
+map.on('click', function(e) {
+  
+  const {lng, lat} = e.lngLat;
+  GLOBAL.routeLine.push([lng,lat]);
+  
+  const qs = GLOBAL.questionList;
+  const qn = qs.length;
+  if(qn < 1) return;
+  
+  //レンダリングされた地物を取得
+  const sv = 3;
+  const bb = [
+    [e.point.x - sv, e.point.y - sv],
+    [e.point.x + sv, e.point.y + sv]
+  ];
+  const features = map.queryRenderedFeatures(bb);
+  
+  let hit = false; // loop を途中で抜けるため
+  
+  for(let j=0; j<features.length; j++){
+    const feature = features[j];
+    const fCode = +feature.properties["vt_code"];
+    for(let i=qn-1; i >= 0; i--){
+      const q = qs[i];
+      const qCode = +q[1];
+      
+      if(fCode == qCode){
+        // 発見時の処理
+        alert(`「${q[2]}」が見つかりました!!`);
+        hit = true;
+        
+        const clear = GLOBAL.questionList.splice(i, 1)[0];
+        GLOBAL.clearedList.push(clear);
+        renderQuestions();
+        
+        feature.properties["color"] = GLOBAL.giveUpStatus ? "rgb(0,128,255)" : "rgb(255,0,0)";
+        if(feature.geometry.type != "Point"){
+          feature.geometry = {"type": "Point", "coordinates": [lng,lat]};
+        }
+        
+        GLOBAL.clearedGeoJSON.features.push(feature);
+        map.getSource('target-points').setData(GLOBAL.clearedGeoJSON);
+        
+        // 最後の１個だった場合
+        if(GLOBAL.questionList.length < 1){
+          alert("おめでとう！ミッション達成です！");
+          console.log("ミッションクリア------------");
+          finishGame();
+        }
+        
+        break;
+      }
+    }
+    if(hit) break;
+  }
+  
+});
+
+// デバッグ用
+const popup = new maplibregl.Popup();
+map.on('click', function(e) {
+  
+  //初期化
+  //popup.remove();
+  
+  //レンダリングされた地物を取得
+  const sv = 3;
+  const bb = [
+    [e.point.x - sv, e.point.y - sv],
+    [e.point.x + sv, e.point.y + sv]
+  ];
+  const features = map.queryRenderedFeatures(bb);
+  
+  if(!features.length) {
+    return;
+  }
+  
+  //ポップアップ表示処理
+  console.log(features);
+  const feature = features[0];
+  const fCode = feature.properties["vt_code"];
+  const fInfo = GLOBAL.featureSet.find( x => +x.split(",")[1] == fCode);
+  const name = fInfo.split(",")[2];
+  
+  popup.setLngLat([ e.lngLat.lng, e.lngLat.lat ])
+    .setHTML(`<div>${name}</div>`)
+    .addTo(map);
+    
+});
+
+</script>
+
+</body>
+</html>
