@@ -8,9 +8,9 @@
 <link href='https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css' rel='stylesheet' />
 <script src="https://unpkg.com/pmtiles@2.10.0/dist/index.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7/turf.min.js"></script>
+<script src="./measure.js"></script>
 <!--
 <script src="./getRasterTilePixel.js"></script>
-<script src="./measure.js"></script>
 -->
 <script src="./setting.js"></script>
 <style>
@@ -39,6 +39,12 @@ body {
   z-index: 99999;
 }
 
+#result {
+  background: #eeeeff;
+  color: #0000ff;
+}
+
+
 </style>
 </head>
 <body>
@@ -57,10 +63,11 @@ body {
     <option value="0">おためし</option>
   </select>
   <button onclick="initializeGame()">リスタート</button>
-  <button onclick="giveUpGame()">あきらめる</button>
+  <button onclick="giveUpGame()">中断・採点</button>
   <hr>
   ミッション：以下の地図記号を探してクリック！
   <div id="questions"></div>
+  <div id="result"></div>
   <hr>
   </div>
   <input type="checkbox" class="local" id="switchPanel" onchange="switchPanel();" checked>操作パネル
@@ -80,7 +87,7 @@ const switchPanel = () => {
 }
 
 const getStartPoint = () => {
-  const sps = GLOBAL.startPointList;
+  const sps = SETTING.startPointList;
   const n = sps.length;
   const i = Math.floor(n * Math.random());
   const sp = sps[i];
@@ -160,31 +167,59 @@ map.on('load', function() {
     }
   });
   
+  map.addSource('miss-points', {
+    type: 'geojson',
+    data: {
+      type: 'FeatureCollection',
+      features: []
+    }
+  });
+  map.addLayer({
+    id: 'miss-points',
+    type: 'circle',
+    source: 'miss-points',
+    paint: {
+      'circle-radius': 10,
+      'circle-color': ['rgba',0,0,0,0],
+      'circle-stroke-width': 4,
+      'circle-stroke-color': ['rgb',128,0,128]
+    }
+  });
+  
   initializeGame();
   
 });
 
 const initializeGame = () => {
+  console.log("<<<ゲーム開始>>>");
+  
   // mode : 難易度設定
   const mode = +document.getElementById("mode").value;
   
   // 出題数
-  const numberOfQuestion = 1 + mode*2;
+  let numberOfQuestion = 3;
   
   // 出題範囲
-  const fSet = GLOBAL.featureSet.map( q => q.split(","));
-  console.log(fSet);
+  const fSet = SETTING.featureSet.map( q => q.split(","));
+  //console.log(fSet);
   
   let examSet;
-  if(mode == 1){ examSet = fSet.filter(x => x[0]=="Anno" && +x[1]>999); }
-  else if(mode == 2){ examSet = fSet.filter(x => +x[1]>1000); }
-  else if(mode == 3){ examSet = fSet; }
-  else if(mode == 0){ 
+  if(mode == 1){
+    examSet = fSet.filter(x => x[0]=="Anno" && +x[1]>999); 
+    numberOfQuestion = 5;
+  }else if(mode == 2){ 
+    examSet = fSet.filter(x => +x[1]>1000); 
+    numberOfQuestion = 5;
+  }else if(mode == 3){ 
+    examSet = fSet; 
+    numberOfQuestion = 7;
+  }else if(mode == 0){ 
     examSet = [
       ["Anno",6322,"未耕地植生　針葉樹林"],
       ["Anno",3218,"郵便局"],
       ["Anno",7102,"三角点"],
     ];
+    numberOfQuestion = 3;
   }
   
   // スタート地点
@@ -195,26 +230,30 @@ const initializeGame = () => {
   GLOBAL.questionList = getRandomElements(examSet, numberOfQuestion);
   GLOBAL.clearedList = [];
   GLOBAL.giveUpStatus = false;
+  GLOBAL.startPoint = start;
+  GLOBAL.missCountInfo = {total: 0};
   
-  // 見つけた地点の記録
-  GLOBAL.clearedGeoJSON = {type: "FeatureCollection", features: []};
+  // 見つけた・見逃した地点の記録
+  GLOBAL.clearedGeoJSON = {type: "FeatureCollection", features: []}; // 初期化
   map.getSource('target-points').setData(GLOBAL.clearedGeoJSON);
+  GLOBAL.missGeoJSON = {type: "FeatureCollection", features: []}; // 初期化
+  map.getSource('miss-points').setData(GLOBAL.missGeoJSON);
   
   // ルート記録
-  GLOBAL.routeLine = [];
+  GLOBAL.routeLine = []; // 初期化
   GLOBAL.routeLine.push(start);
   map.getSource('route-line').setData({type: "FeatureCollection", features: []});
   
   // ミッションの表示と移動
+  document.getElementById("result").innerHTML = ``;
   renderQuestions();
   map.jumpTo({ center: start, zoom: 15 });
   map.setMinZoom(14); 
 }
 
 const finishGame = () => {
-  console.log("ゲーム終了");
-  console.log(GLOBAL.clearedGeoJSON);
-  console.log(GLOBAL.routeLine);
+  console.log("<<<ゲーム終了>>>");
+  console.log(GLOBAL);
   
   const routeGeoJSON = {
     "type": "FeatureCollection",
@@ -229,12 +268,17 @@ const finishGame = () => {
       }
     }]
   };
-  
   map.getSource('route-line').setData(routeGeoJSON);
+  
+  map.getSource('miss-points').setData(GLOBAL.missGeoJSON);
   
   map.setMinZoom(4);
   const bounds = turf.bbox(routeGeoJSON); // or GLOBAL.clearedGeoJSON
   map.fitBounds([[bounds[0], bounds[1]], [bounds[2], bounds[3]]], { padding: 40 });
+  
+  const pointValue = pointCalc();
+  const note = GLOBAL.giveUpStatus ? "【中断】": "";
+  document.getElementById("result").innerHTML = `<span>得点 (試作v0.1.0)：${pointValue.toLocaleString()}点${note}</span>`;
   
 }
 
@@ -284,10 +328,153 @@ function getRandomElements(array, m) {
 }
 
 /*************************************************/
+/*ポイント計算 関係設定                          */
+/*************************************************/
+
+const missingCheck = () => {
+  
+  const qs = GLOBAL.questionList;
+  const qn = qs.length;
+  if(qn < 1) return;
+
+  features = map.queryRenderedFeatures();
+  
+  let countInfo = {
+    total: 0
+  };
+  
+  for(let j=0; j<features.length; j++){
+    const feature = features[j];
+    const fCode = +feature.properties["vt_code"];
+    for(let i=qn-1; i >= 0; i--){
+      const q = qs[i];
+      const qCode = +q[1];
+      if(fCode == qCode){
+        if(!countInfo[fCode]) countInfo[fCode] = 0;
+        countInfo[fCode] += 1;
+        countInfo.total += 1;
+        
+        const has = GLOBAL.missGeoJSON.features.some(x => x.properties["vt_code"] == fCode);
+        if(!has){
+          GLOBAL.missGeoJSON.features.push(feature);
+        }
+      }
+    }
+  }
+  
+  if(countInfo.total>0) console.log("見逃し:", countInfo)
+  
+  for(const key in countInfo){
+    if(!GLOBAL.missCountInfo[key]) GLOBAL.missCountInfo[key] = 0;
+    GLOBAL.missCountInfo[key] += countInfo[key];
+  }
+
+}
+
+const pointCalc = () => {
+  
+  let targetDistValue = 1;
+  let routeDistValue = 1;
+  
+  const mel = document.getElementById("mode");
+  const mode = mel ? +mel.value : 1;
+  
+  const st = GLOBAL.startPoint;
+  const pt = GLOBAL.clearedGeoJSON.features;
+  const vx = GLOBAL.routeLine;
+  const lf = GLOBAL.questionList;
+  
+  // 回答数がゼロなら０点
+  if(pt.length < 1){ return 0; }
+  
+  let bf; // 使いまわし
+
+  // -------------------------------------------------------------------- //
+  // 探索点：探索量に応じたポイント
+  const baseR = 50 * 1000 + 50 * 1000 * mode; // この数字以内なら得点が増加
+  
+  bf = vx[0];
+  for(let i=1; i<vx.length; i++){
+    const p = vx[i];
+    const _d = GSI.Utils.DistanceCalculator.calc(
+      {lng: bf[0], lat: bf[1]},
+      {lng: p[0],  lat: p[1]}
+    );
+    routeDistValue += _d;
+    bf = p;
+  }
+  
+  const valR = 2000 * (1 - routeDistValue/baseR);
+  const routePoint = Math.max(0, Math.floor(valR));  
+  
+  // -------------------------------------------------------------------- //
+  // 見逃し数に応じたペナルティ
+  const missCount = GLOBAL.missCountInfo.total || 0;
+  const missPenalty = 1 + Math.sqrt(missCount)/(10 + mode); 
+    // 未回答数に応じてペナルティ 難易度に応じて緩和
+   
+  // 集約点：ターゲット間の距離累計（見逃し補正込み）
+  const baseT = 25 * 1000 + 25 * 1000 * mode; // この数字以内なら得点が増加
+  
+  if(pt.length < 2){
+    targetDistValue = baseT; // 1点以下は0点
+  }else{
+    bf = pt[0].geometry.coordinates;
+    for(let i=1; i<pt.length; i++){
+      const p = pt[i].geometry.coordinates;
+      const _d = GSI.Utils.DistanceCalculator.calc(
+        {lng: bf[0], lat: bf[1]},
+        {lng: p[0],  lat: p[1]}
+      );
+      targetDistValue += _d;
+      console.log("テスト", bf, p, _d);
+      bf = p;
+    }
+    console.log(targetDistValue);
+  }
+  
+  const valT = 2000 * (1 - targetDistValue/baseT) / missPenalty;
+  const targetPoint = Math.max(0, Math.floor(valT));
+  
+  // -------------------------------------------------------------------- //
+  // 基本点： 回答数に応じたポイント
+  const answerPoint = pt.length * 1000; // １回答1000点
+
+  // -------------------------------------------------------------------- //  
+  // 回答数・未回答によるボーナス・ペナルティ
+  const bonus = 1 + pt.length/5;   // 回答数に応じてボーナス
+  const penalty = 1 + lf.length/5; // 未回答数に応じてペナルティ
+  // 難易度によるボーナス
+  const bonus2 = mode;
+  
+  // 補正
+  const adj = bonus2 + (bonus / penalty);
+  
+  // 結果
+  const totalPoint = answerPoint + targetPoint + routePoint; 
+  const res = Math.floor(totalPoint * adj);
+  
+  console.log("探索=", Math.floor(routeDistValue/1000), baseR/1000, 
+              "集約=", Math.floor(targetDistValue/1000), baseT/1000, "km");
+  console.log("合計=", res, "基本点=", answerPoint, "探索点=", routePoint,  
+              "集約点=", targetPoint, "(見逃し補正)", missPenalty, 
+              "補正:", adj, "(回答)", bonus, "(未回答)", penalty, "難易度:", mode);
+  
+  console.log(GLOBAL);
+  
+  return res;
+  
+}
+
+/*************************************************/
 /*地図移動 関係設定                              */
 /*************************************************/
 
 map.on('moveend', () => {
+  if(map.getZoom() < 14) return;
+  // 見逃しチェック
+  missingCheck();
+  // 探索ルートの追加
   if(!GLOBAL.routeLine) return;
   const {lng, lat} = map.getCenter();
   GLOBAL.routeLine.push([lng,lat]);
@@ -298,6 +485,8 @@ map.on('moveend', () => {
 /*************************************************/
 
 map.on('click', function(e) {
+  
+  if(map.getZoom() < 14) return;
   
   const {lng, lat} = e.lngLat;
   GLOBAL.routeLine.push([lng,lat]);
@@ -376,9 +565,14 @@ map.on('click', function(e) {
   
   //ポップアップ表示処理
   console.log(features);
+  
   const feature = features[0];
   const fCode = feature.properties["vt_code"];
-  const fInfo = GLOBAL.featureSet.find( x => +x.split(",")[1] == fCode);
+  if(!fCode) return;
+  
+  const fInfo = SETTING.featureSet.find( x => +x.split(",")[1] == fCode);
+  if(!fInfo) return;
+  
   const name = fInfo.split(",")[2];
   
   popup.setLngLat([ e.lngLat.lng, e.lngLat.lat ])

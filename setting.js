@@ -1,7 +1,8 @@
 const GLOBAL = {};
+const SETTING = {};
 
 // 地理院地図の検索機能で「振興局」「県庁舎」を検索した結果を加工
-GLOBAL.startPointList = [
+SETTING.startPointList = [
   [141.7665101,43.19760924],
   [140.75653433,42.90229698],
   [140.972226,42.320372],
@@ -64,7 +65,7 @@ GLOBAL.startPointList = [
 
 //注記分類コード・地物種別コード一覧
 //https://maps.gsi.go.jp/help/pdf/vector/optbv_featurecodes.pdf
-GLOBAL.featureSet = [
+SETTING.featureSet = [
   "Anno,110,市区町村",
   "Anno,120,飛び地",
   "Anno,210,公称（町字名）",
