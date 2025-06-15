@@ -427,10 +427,8 @@ const pointCalc = () => {
         {lng: p[0],  lat: p[1]}
       );
       targetDistValue += _d;
-      console.log("テスト", bf, p, _d);
       bf = p;
     }
-    console.log(targetDistValue);
   }
   
   const valT = 2000 * (1 - targetDistValue/baseT) / missPenalty;
@@ -534,6 +532,10 @@ map.on('click', function(e) {
           alert("おめでとう！ミッション達成です！");
           console.log("ミッションクリア------------");
           finishGame();
+        }else{
+          console.log("...途中経過");
+          const res = pointCalc();
+          console.log("途中経過", res);
         }
         
         break;
