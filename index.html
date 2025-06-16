@@ -34,6 +34,7 @@ body {
   background: #eeeeee;
   box-shadow: 0px 0px 0px 0px #eeeeee;
   font-family: 'Open Sans', sans-serif;
+  max-width: 400px;
   //min-height: 300px;
   pointer-events: auto;
   z-index: 99999;
@@ -69,6 +70,11 @@ body {
   <div id="questions"></div>
   <div id="result"></div>
   <hr>
+  <input type="checkbox" class="local" id="switchRaster" onchange="switchRaster();" checked>ラスタタイル表示
+  <hr>
+  注：地図記号が見つからないときやクリックしても反応しないときは、
+  <strong>地図を拡大する</strong>と表示されたりクリックに反応したりする場合があります。
+  <hr>
   </div>
   <input type="checkbox" class="local" id="switchPanel" onchange="switchPanel();" checked>操作パネル
 </div>
@@ -84,6 +90,22 @@ const switchPanel = () => {
   }else{
     document.getElementById("menu-main").style.display = "none";
   }
+}
+
+const switchRaster = () => {
+  const style = map.getStyle();
+  const layers = style.layers;
+  const checked = document.getElementById("switchRaster").checked;
+  layers.forEach( layer => {
+    if(layer.source == "raster"){
+      if(!layer.layout) layer.layout ={};
+      if(checked){
+        map.setLayoutProperty(layer.id, "visibility", "visible");
+      }else{
+        map.setLayoutProperty(layer.id, "visibility", "none");
+      }
+    }
+  });
 }
 
 const getStartPoint = () => {
@@ -130,6 +152,28 @@ maplibregl.addProtocol("pmtiles",protocol.tile);
 /*************************************************/
 
 map.on('load', function() {
+  
+  const checked = document.getElementById("switchRaster").checked;
+  map.addSource("raster", {
+    "type": "raster",
+    "minzoom":2,
+    "maxzoom":17,
+    "tiles":["https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png"],
+    "tileSize": 256,
+    "attribution":"<a href='https://maps.gsi.go.jp/development/ichiran.html#' target='_blank'>地理院タイル</a>"
+  });
+  map.addLayer({ 
+    "id":"raster",
+    "type": "raster",
+    "source": "raster",
+    "paint":{
+      "raster-opacity": 1
+    },
+    "layout":{
+      "visibility": checked ? "visible" : "none"
+    }
+  });
+  
   
   map.addSource('route-line', {
     type: 'geojson',
