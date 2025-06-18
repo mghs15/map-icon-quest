@@ -53,7 +53,7 @@ body {
 <div id='menu'>
   <div id='menu-main'>
   指定された地図記号を探そう！
-  <br>
+  <hr>
   <!--
   記号数：<input id="qNum" type="number" value="0" /><br>
   -->
@@ -67,13 +67,13 @@ body {
   <button onclick="giveUpGame()">中断・採点</button>
   <hr>
   ミッション：以下の地図記号を探してクリック！
+  <br>
+  注：地図記号が見つからないときやクリックしても反応しないときは、
+  <strong>地図を拡大する</strong>と表示されたりクリックに反応したりする場合があります。
   <div id="questions"></div>
   <div id="result"></div>
   <hr>
-  <input type="checkbox" class="local" id="switchRaster" onchange="switchRaster();" checked>ラスタタイル表示
-  <hr>
-  注：地図記号が見つからないときやクリックしても反応しないときは、
-  <strong>地図を拡大する</strong>と表示されたりクリックに反応したりする場合があります。
+  <input type="checkbox" class="local" id="switchRaster" onchange="switchRaster();">ラスタタイル（標準地図）表示
   <hr>
   </div>
   <input type="checkbox" class="local" id="switchPanel" onchange="switchPanel();" checked>操作パネル
@@ -322,7 +322,7 @@ const finishGame = () => {
   
   const pointValue = pointCalc();
   const note = GLOBAL.giveUpStatus ? "【中断】": "";
-  document.getElementById("result").innerHTML = `<span>得点 (試作v0.1.0)：${pointValue.toLocaleString()}点${note}</span>`;
+  document.getElementById("result").innerHTML = `<span>得点 (試作v0.2.0)：${pointValue.toLocaleString()}点${note}</span>`;
   
 }
 
@@ -339,14 +339,14 @@ const renderQuestions = () => {
   const qs = GLOBAL.questionList;
   qs.forEach( q => {
     const el = document.createElement("div");
-    el.innerText = `「${q[2]}」`;
+    el.innerText = `☐「${q[2]}」`;
     p.appendChild(el);
   });
   
   const cs = GLOBAL.clearedList;
   cs.forEach( q => {
     const el = document.createElement("div");
-    el.innerText = `クリア済：「${q[2]}」`;
+    el.innerText = `☑クリア済：「${q[2]}」`;
     p.appendChild(el);
   });
   
@@ -458,7 +458,8 @@ const pointCalc = () => {
     // 未回答数に応じてペナルティ 難易度に応じて緩和
    
   // 集約点：ターゲット間の距離累計（見逃し補正込み）
-  const baseT = 25 * 1000 + 25 * 1000 * mode; // この数字以内なら得点が増加
+  let targetPoint = 0;
+  const baseT = 2 * 1000 + 2 * 1000 * mode; // この数字以内なら得点が増加
   
   if(pt.length < 2){
     targetDistValue = baseT; // 1点以下は0点
@@ -470,13 +471,13 @@ const pointCalc = () => {
         {lng: bf[0], lat: bf[1]},
         {lng: p[0],  lat: p[1]}
       );
-      targetDistValue += _d;
+      const valT = 1000 * (1 - _d/baseT) / missPenalty;
+      targetPoint += valT;
       bf = p;
     }
   }
   
-  const valT = 2000 * (1 - targetDistValue/baseT) / missPenalty;
-  const targetPoint = Math.max(0, Math.floor(valT));
+  targetPoint = Math.max(0, Math.floor(targetPoint));
   
   // -------------------------------------------------------------------- //
   // 基本点： 回答数に応じたポイント
