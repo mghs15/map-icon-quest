@@ -2,18 +2,18 @@ const GLOBAL = {};
 const SETTING = {};
 
 // 難易度設定
-SETTING.version = "v.0.3.0";
+SETTING.version = "v.0.4.0";
 
 // 難易度設定
 SETTING.mode = {
   defult: {mode:1, range:0.5, adj:1, qNum:5},
   list: [
-    {mode:0, range:1,   adj:1,  qNum:3},
-    {mode:1, range:0,   adj:1,  qNum:5},
-    {mode:2, range:0.5, adj:1,  qNum:5},
-    {mode:3, range:1,   adj:2,  qNum:5},
-    {mode:4, range:1,   adj:3,  qNum:7},
-    {mode:5, range:1,   adj:10, qNum:3},
+    {mode:0, range:1,   adj:0,   qNum:3},
+    {mode:1, range:0,   adj:0.5, qNum:5},
+    {mode:2, range:0.5, adj:1,   qNum:5},
+    {mode:3, range:1,   adj:2,   qNum:5},
+    {mode:4, range:1,   adj:3,   qNum:7},
+    {mode:5, range:1,   adj:10,  qNum:3},
   ]
 };
 
