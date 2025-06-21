@@ -58,9 +58,11 @@ body {
   記号数：<input id="qNum" type="number" value="0" /><br>
   -->
   難易度：<select name="mode" id="mode">
-    <option value="1">標準</option>
-    <option value="2">難しい</option>
-    <option value="3">かなり難しい</option>
+    <option value="1">入門</option>
+    <option value="2">標準</option>
+    <option value="3">難しい</option>
+    <option value="4">かなり難しい</option>
+    <option value="5">無理かも</option>
     <option value="0">おためし</option>
   </select>
   <button onclick="initializeGame()">リスタート</button>
@@ -74,6 +76,8 @@ body {
   <div id="result"></div>
   <hr>
   <input type="checkbox" class="local" id="switchRaster" onchange="switchRaster();">ラスタタイル（標準地図）表示
+  <br>
+  <input type="checkbox" class="local" id="switchPhoto" onchange="switchPhoto();">ラスタタイル（写真）表示
   <hr>
   </div>
   <input type="checkbox" class="local" id="switchPanel" onchange="switchPanel();" checked>操作パネル
@@ -108,14 +112,41 @@ const switchRaster = () => {
   });
 }
 
+const switchPhoto = () => {
+  const style = map.getStyle();
+  const layers = style.layers;
+  const checked = document.getElementById("switchPhoto").checked;
+  layers.forEach( layer => {
+    if(layer.source == "photo"){
+      if(!layer.layout) layer.layout ={};
+      if(checked){
+        map.setLayoutProperty(layer.id, "visibility", "visible");
+      }else{
+        map.setLayoutProperty(layer.id, "visibility", "none");
+      }
+    }
+  });
+}
+
 const getStartPoint = () => {
   const sps = SETTING.startPointList;
   const n = sps.length;
   const i = Math.floor(n * Math.random());
   const sp = sps[i];
-  const x = Math.random() - 0.5; // -1～1
-  const y = Math.random() - 0.5; // -1～1
+  
+  // mode : 難易度設定
+  const range = getMode().range;
+  
+  const x = range * (Math.random() - 0.5);
+  const y = range * (Math.random() - 0.5);
   return [sp[0] + x, sp[1] + y];
+}
+
+const getMode = () => {
+  const mel = document.getElementById("mode");
+  if(!mel) return SETTING.mode.defult;
+  const mode = mel.value;
+  return SETTING.mode.list.find(x => x.mode == mode);
 }
 
 /*************************************************/
@@ -153,14 +184,14 @@ maplibregl.addProtocol("pmtiles",protocol.tile);
 
 map.on('load', function() {
   
-  const checked = document.getElementById("switchRaster").checked;
+  const checkedRaster = document.getElementById("switchRaster").checked;
   map.addSource("raster", {
     "type": "raster",
     "minzoom":2,
-    "maxzoom":17,
+    "maxzoom":18,
     "tiles":["https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png"],
     "tileSize": 256,
-    "attribution":"<a href='https://maps.gsi.go.jp/development/ichiran.html#' target='_blank'>地理院タイル</a>"
+    "attribution":"<a href='https://maps.gsi.go.jp/development/ichiran.html' target='_blank'>地理院タイル</a>"
   });
   map.addLayer({ 
     "id":"raster",
@@ -170,10 +201,33 @@ map.on('load', function() {
       "raster-opacity": 1
     },
     "layout":{
-      "visibility": checked ? "visible" : "none"
+      "visibility": checkedRaster ? "visible" : "none"
     }
   });
   
+  
+  console.log(map.getStyle());
+  
+  const checkedPhoto = document.getElementById("switchPhoto").checked;
+  map.addSource("photo", {
+    "type": "raster",
+    "minzoom":2,
+    "maxzoom":18,
+    "tiles":["https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg"],
+    "tileSize": 256,
+    "attribution":"<a href='https://maps.gsi.go.jp/development/ichiran.html' target='_blank'>地理院タイル</a>"
+  });
+  map.addLayer({ 
+    "id":"photo",
+    "type": "raster",
+    "source": "photo",
+    "paint":{
+      "raster-opacity": 1
+    },
+    "layout":{
+      "visibility": checkedPhoto ? "visible" : "none"
+    }
+  });
   
   map.addSource('route-line', {
     type: 'geojson',
@@ -238,10 +292,11 @@ const initializeGame = () => {
   console.log("<<<ゲーム開始>>>");
   
   // mode : 難易度設定
-  const mode = +document.getElementById("mode").value;
+  const mr = getMode();
+  const mode = mr.mode;
   
   // 出題数
-  let numberOfQuestion = 3;
+  let numberOfQuestion = mr.qNum;
   
   // 出題範囲
   const fSet = SETTING.featureSet.map( q => q.split(","));
@@ -249,21 +304,21 @@ const initializeGame = () => {
   
   let examSet;
   if(mode == 1){
-    examSet = fSet.filter(x => x[0]=="Anno" && +x[1]>999); 
-    numberOfQuestion = 5;
-  }else if(mode == 2){ 
-    examSet = fSet.filter(x => +x[1]>1000); 
-    numberOfQuestion = 5;
+    examSet = fSet.filter(x => +x[3] == 1); 
+  }else if(mode == 2){
+    examSet = fSet.filter(x => +x[3] <= 2); 
   }else if(mode == 3){ 
-    examSet = fSet; 
-    numberOfQuestion = 7;
+    examSet = fSet.filter(x =>  +x[3] <= 3); 
+  }else if(mode == 4){ 
+    examSet = fSet.filter(x =>  +x[3] <= 4);
+  }else if(mode == 5){ 
+    examSet = fSet.filter(x =>  +x[3] == 5);
   }else if(mode == 0){ 
     examSet = [
       ["Anno",6322,"未耕地植生　針葉樹林"],
       ["Anno",3218,"郵便局"],
       ["Anno",7102,"三角点"],
     ];
-    numberOfQuestion = 3;
   }
   
   // スタート地点
@@ -322,7 +377,10 @@ const finishGame = () => {
   
   const pointValue = pointCalc();
   const note = GLOBAL.giveUpStatus ? "【中断】": "";
-  document.getElementById("result").innerHTML = `<span>得点 (試作v0.2.0)：${pointValue.toLocaleString()}点${note}</span>`;
+  const version = SETTING.version;
+  document.getElementById("result").innerHTML = `<span>得点 (試作${version})：${pointValue.toLocaleString()}点${note}</span>`;
+  
+  alert(`得点は${pointValue.toLocaleString()}点でした（試作${version}${note}）`);
   
 }
 
@@ -420,8 +478,9 @@ const pointCalc = () => {
   let targetDistValue = 1;
   let routeDistValue = 1;
   
-  const mel = document.getElementById("mode");
-  const mode = mel ? +mel.value : 1;
+  const mr = getMode();
+  const mode = mr.mode;
+  const modeAdj = mr.adj; // 難易度補正値
   
   const st = GLOBAL.startPoint;
   const pt = GLOBAL.clearedGeoJSON.features;
@@ -435,7 +494,7 @@ const pointCalc = () => {
 
   // -------------------------------------------------------------------- //
   // 探索点：探索量に応じたポイント
-  const baseR = 50 * 1000 + 50 * 1000 * mode; // この数字以内なら得点が増加
+  const baseR = 50 * 1000 + 50 * 1000 * modeAdj; // この数字以内なら得点が増加
   
   bf = vx[0];
   for(let i=1; i<vx.length; i++){
@@ -454,15 +513,15 @@ const pointCalc = () => {
   // -------------------------------------------------------------------- //
   // 見逃し数に応じたペナルティ
   const missCount = GLOBAL.missCountInfo.total || 0;
-  const missPenalty = 1 + Math.sqrt(missCount)/(10 + mode); 
+  const missPenalty = 1 + Math.sqrt(missCount)/(10 + modeAdj); 
     // 未回答数に応じてペナルティ 難易度に応じて緩和
    
-  // 集約点：ターゲット間の距離累計（見逃し補正込み）
+  // 集約点：ターゲット間の距離累計（見逃しペナルティ込み）
   let targetPoint = 0;
-  const baseT = 2 * 1000 + 2 * 1000 * mode; // この数字以内なら得点が増加
+  const baseT = 2 * 1000 + 2 * 1000 * modeAdj; // この数字以内なら得点が増加
   
   if(pt.length < 2){
-    targetDistValue = baseT; // 1点以下は0点
+    // 1点以下は0点
   }else{
     bf = pt[0].geometry.coordinates;
     for(let i=1; i<pt.length; i++){
@@ -471,8 +530,8 @@ const pointCalc = () => {
         {lng: bf[0], lat: bf[1]},
         {lng: p[0],  lat: p[1]}
       );
-      const valT = 1000 * (1 - _d/baseT) / missPenalty;
-      targetPoint += valT;
+      const value = 1000 * (1 - _d/baseT) / missPenalty;
+      targetPoint += value;
       bf = p;
     }
   }
@@ -488,7 +547,7 @@ const pointCalc = () => {
   const bonus = 1 + pt.length/5;   // 回答数に応じてボーナス
   const penalty = 1 + lf.length/5; // 未回答数に応じてペナルティ
   // 難易度によるボーナス
-  const bonus2 = mode;
+  const bonus2 = modeAdj;
   
   // 補正
   const adj = bonus2 + (bonus / penalty);
@@ -501,7 +560,8 @@ const pointCalc = () => {
               "集約=", Math.floor(targetDistValue/1000), baseT/1000, "km");
   console.log("合計=", res, "基本点=", answerPoint, "探索点=", routePoint,  
               "集約点=", targetPoint, "(見逃し補正)", missPenalty, 
-              "補正:", adj, "(回答)", bonus, "(未回答)", penalty, "難易度:", mode);
+              "補正:", adj, "(回答)", bonus, "(未回答)", penalty, 
+              "難易度:", mode, "(補正値)", modeAdj);
   
   console.log(GLOBAL);
   
@@ -515,12 +575,16 @@ const pointCalc = () => {
 
 map.on('moveend', () => {
   if(map.getZoom() < 14) return;
-  // 見逃しチェック
-  missingCheck();
   // 探索ルートの追加
   if(!GLOBAL.routeLine) return;
   const {lng, lat} = map.getCenter();
   GLOBAL.routeLine.push([lng,lat]);
+});
+
+map.on('movestart', () => {
+  if(map.getZoom() < 14) return;
+  // 見逃しチェック
+  missingCheck();
 });
 
 /*************************************************/
@@ -618,9 +682,8 @@ map.on('click', function(e) {
   if(!fCode) return;
   
   const fInfo = SETTING.featureSet.find( x => +x.split(",")[1] == fCode);
-  if(!fInfo) return;
   
-  const name = fInfo.split(",")[2];
+  const name = fInfo ? fInfo.split(",")[2] : "[出題対象外]";
   
   popup.setLngLat([ e.lngLat.lng, e.lngLat.lat ])
     .setHTML(`<div>${name}</div>`)
